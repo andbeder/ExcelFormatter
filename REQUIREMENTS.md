@@ -33,6 +33,7 @@ For example, running `node generateReport.js "Employee Survey"` creates `Employe
    - **Text Align** – Alignment for cell text (`left`, `center`, `right`).
    - **Font Bold** – `Y` to render the column in bold.
    - **Font Name** - Optional name of font to use
+   - **Number Format** - Optional Excel-style number formatting for the cell
    - **Report Name** – Name of the report to which the row applies.
 
 2. **Report Definitions (Sheet 2)** – Defines the overall report settings:
