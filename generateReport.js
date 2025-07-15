@@ -122,6 +122,24 @@ function parseCSV(file) {
   }).filter(Boolean);
 }
 
+function applyFormat(val, fmt) {
+  if (!fmt) return val;
+  const num = parseFloat(val);
+  if (isNaN(num)) return val;
+  let options = { useGrouping: fmt.includes(','), minimumFractionDigits: 0, maximumFractionDigits: 0 };
+  const dec = fmt.match(/0\.(0+)/);
+  if (dec) {
+    const d = dec[1].length;
+    options.minimumFractionDigits = options.maximumFractionDigits = d;
+  }
+  let n = num;
+  if (fmt.includes('%')) n *= 100;
+  let result = new Intl.NumberFormat('en-US', options).format(n);
+  if (fmt.startsWith('$')) result = '$' + result;
+  if (fmt.includes('%')) result += '%';
+  return result;
+}
+
 function buildHtml(meta, rows) {
   const headerFields = meta.entries.filter(e => (e['Is Header'] || '').toUpperCase() === 'Y').map(e => e['Field Name']);
   const dataFields = meta.entries.filter(e => (e['Is Header'] || '').toUpperCase() !== 'Y').map(e => e['Field Name']);
@@ -132,6 +150,7 @@ function buildHtml(meta, rows) {
   const textAligns = {};
   const fontBolds = {};
   const fontNames = {};
+  const numberFormats = {};
   meta.entries.forEach(e => {
     const name = e['Field Name'];
     const width = parseFloat(e['Column Width']);
@@ -142,6 +161,7 @@ function buildHtml(meta, rows) {
     if (e['Text Align']) textAligns[name] = e['Text Align'].toLowerCase();
     if ((e['Font Bold'] || '').toUpperCase() === 'Y') fontBolds[name] = true;
     if (e['Font Name']) fontNames[name] = e['Font Name'];
+    if (e['Number Format']) numberFormats[name] = e['Number Format'];
   });
 
   let html = '<html><head><meta charset="utf-8"><style>@page{size:landscape;}table{width:100%;}</style></head><body>\n<table border="1" cellspacing="0" cellpadding="3">\n';
@@ -183,7 +203,7 @@ function buildHtml(meta, rows) {
   });
 
   Object.entries(groups).forEach(([key, list]) => {
-    const caption = headerFields.map(h => list[0][h]).join(' - ');
+    const caption = headerFields.map(h => applyFormat(list[0][h], numberFormats[h])).join(' - ');
     const h = headerFields[0];
     const font = h && fontSizes[h] ? `font-size:${fontSizes[h]}pt;` : '';
     const family = h && fontNames[h] ? `font-family:${fontNames[h]};` : '';
@@ -200,7 +220,9 @@ function buildHtml(meta, rows) {
         const bg = bgColors[f] ? `background-color:${bgColors[f]};` : '';
         const align = textAligns[f] ? `text-align:${textAligns[f]};` : '';
         const bold = fontBolds[f] ? 'font-weight:bold;' : '';
-        html += `<td style="${width}${font}${family}${bg}${align}${bold}">${r[f] || ''}</td>`;
+        const val = r[f] || '';
+        const disp = applyFormat(val, numberFormats[f]);
+        html += `<td style="${width}${font}${family}${bg}${align}${bold}">${disp}</td>`;
       });
       html += '</tr>\n';
     });
