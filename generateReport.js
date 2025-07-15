@@ -108,11 +108,11 @@ function parseMetadata(reportName) {
 }
 
 function parseCSV(file) {
-  const text = fs.readFileSync(file, 'utf8').trim();
+  const text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').trim();
   const lines = text.split(/\r?\n/);
   const headers = lines.shift().split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
   return lines.map(line => {
-    if (!line.trim()) return null;
+    if (!line.trim() || /^\s*(?:,\s*)*$/.test(line)) return null;
     const cells = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c => c.replace(/^"|"$/g, ''));
     const obj = {};
     headers.forEach((h, i) => {
@@ -138,6 +138,15 @@ function applyFormat(val, fmt) {
   if (fmt.startsWith('$')) result = '$' + result;
   if (fmt.includes('%')) result += '%';
   return result;
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function buildHtml(meta, rows) {
@@ -176,7 +185,7 @@ function buildHtml(meta, rows) {
   if (meta.titleColor) titleStyles.push(`color:${meta.titleColor};`);
   if ((meta.titleBold || '').toUpperCase() === 'Y') titleStyles.push('font-weight:bold;');
   if (meta.titleFontName) titleStyles.push(`font-family:${meta.titleFontName};`);
-  html += `<tr><td colspan="${dataFields.length}" style="${titleStyles.join('')}">${meta.title || ''}</td></tr>\n`;
+  html += `<tr><td colspan="${dataFields.length}" style="${titleStyles.join('')}">${escapeHtml(meta.title || '')}</td></tr>\n`;
   html += '<thead><tr>';
   dataFields.forEach(f => {
     const width = colWidths[f] ? `width:${colWidths[f]};` : '';
@@ -191,7 +200,7 @@ function buildHtml(meta, rows) {
     const bg = bgColors[f] ? `background-color:${bgColors[f]};` : '';
     const align = textAligns[f] ? `text-align:${textAligns[f]};` : '';
     const bold = fontBolds[f] ? 'font-weight:bold;' : '';
-    html += `<th style="${width}${headerStyles.join('')}${font}${family}${bg}${align}${bold}">${f}</th>`;
+    html += `<th style="${width}${headerStyles.join('')}${font}${family}${bg}${align}${bold}">${escapeHtml(f)}</th>`;
   });
   html += '</tr></thead>\n<tbody>\n';
 
@@ -202,8 +211,15 @@ function buildHtml(meta, rows) {
     groups[key].push(row);
   });
 
-  Object.entries(groups).forEach(([key, list]) => {
-    const caption = headerFields.map(h => applyFormat(list[0][h], numberFormats[h])).join(' - ');
+  const sortedGroupKeys = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+
+  sortedGroupKeys.forEach(key => {
+    const list = groups[key];
+    list.sort((a, b) => {
+      const col = dataFields[0];
+      return String(a[col] || '').localeCompare(String(b[col] || ''));
+    });
+    const caption = headerFields.map(h => escapeHtml(applyFormat(list[0][h], numberFormats[h]))).join(' - ');
     const h = headerFields[0];
     const font = h && fontSizes[h] ? `font-size:${fontSizes[h]}pt;` : '';
     const family = h && fontNames[h] ? `font-family:${fontNames[h]};` : '';
@@ -221,7 +237,7 @@ function buildHtml(meta, rows) {
         const align = textAligns[f] ? `text-align:${textAligns[f]};` : '';
         const bold = fontBolds[f] ? 'font-weight:bold;' : '';
         const val = r[f] || '';
-        const disp = applyFormat(val, numberFormats[f]);
+        const disp = escapeHtml(applyFormat(val, numberFormats[f]));
         html += `<td style="${width}${font}${family}${bg}${align}${bold}">${disp}</td>`;
       });
       html += '</tr>\n';

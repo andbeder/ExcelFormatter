@@ -58,6 +58,8 @@ The CSV file must contain headers matching the field names referenced in the met
 
 The script reads the CSV rows, groups them by the fields marked `Is Header`, and then generates an HTML table with styling defined by the metadata. The output is written as `<Report_Name_With_Underscores>.xls` so that spreadsheet applications can open it directly. The header rows are sorted first, and then the records are sorted according to the first column.
 
+All cell contents are HTML-escaped in the generated output so that special characters display correctly.
+
 ## Script internals
 
 Key operations performed by `generateReport.js` include:
