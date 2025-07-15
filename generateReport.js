@@ -53,14 +53,15 @@ function parseMetadata(reportName) {
   const strings = getSharedStrings();
   const rows = getSheetRows(strings);
   const headerRow = rows[1];
-  const headers = ['A','B','C','D','E','F'].map(c => headerRow[c]);
+  const headerCols = Object.keys(headerRow);
+  const headers = headerCols.map(c => headerRow[c]);
   const result = [];
   for (let i = 2; i < rows.length; i++) {
     const r = rows[i];
     if (!r) continue;
     const obj = {};
     headers.forEach((h, idx) => {
-      const col = 'ABCDEF'[idx];
+      const col = headerCols[idx];
       obj[h] = r[col];
     });
     if (obj['Report Name'] === reportName) {
@@ -92,20 +93,29 @@ function buildHtml(meta, rows) {
 
   const colWidths = {};
   const fontSizes = {};
+  const bgColors = {};
+  const textAligns = {};
+  const fontBolds = {};
   meta.entries.forEach(e => {
     const name = e['Field Name'];
     const width = parseFloat(e['Column Width']);
     if (!isNaN(width)) colWidths[name] = width;
     const fnt = parseFloat(e['Font Size']);
     if (!isNaN(fnt)) fontSizes[name] = fnt;
+    if (e['Background Color']) bgColors[name] = e['Background Color'];
+    if (e['Text Align']) textAligns[name] = e['Text Align'].toLowerCase();
+    if ((e['Font Bold'] || '').toUpperCase() === 'Y') fontBolds[name] = true;
   });
 
-  let html = '<html><head><meta charset="utf-8"></head><body>\n<table border="1" cellspacing="0" cellpadding="3">\n';
+  let html = '<html><head><meta charset="utf-8"><style>@page{size:landscape;}table{width:100%;}</style></head><body>\n<table border="1" cellspacing="0" cellpadding="3">\n';
   html += '<thead><tr>';
   dataFields.forEach(f => {
     const width = colWidths[f] ? `width:${colWidths[f]}ch;` : '';
     const font = fontSizes[f] ? `font-size:${fontSizes[f]}pt;` : '';
-    html += `<th style="${width}${font}">${f}</th>`;
+    const bg = bgColors[f] ? `background-color:${bgColors[f]};` : '';
+    const align = textAligns[f] ? `text-align:${textAligns[f]};` : '';
+    const bold = fontBolds[f] ? 'font-weight:bold;' : '';
+    html += `<th style="${width}${font}${bg}${align}${bold}">${f}</th>`;
   });
   html += '</tr></thead>\n<tbody>\n';
 
@@ -118,11 +128,21 @@ function buildHtml(meta, rows) {
 
   Object.entries(groups).forEach(([key, list]) => {
     const caption = headerFields.map(h => list[0][h]).join(' - ');
-    html += `<tr><td colspan="${dataFields.length}" style="font-weight:bold;text-align:left">${caption}</td></tr>\n`;
+    const h = headerFields[0];
+    const font = h && fontSizes[h] ? `font-size:${fontSizes[h]}pt;` : '';
+    const bg = h && bgColors[h] ? `background-color:${bgColors[h]};` : '';
+    const align = h && textAligns[h] ? `text-align:${textAligns[h]};` : 'text-align:left;';
+    const bold = h && fontBolds[h] ? 'font-weight:bold;' : '';
+    html += `<tr><td colspan="${dataFields.length}" style="${bold}${align}${font}${bg}">${caption}</td></tr>\n`;
     list.forEach(r => {
       html += '<tr>';
       dataFields.forEach(f => {
-        html += `<td>${r[f] || ''}</td>`;
+        const width = colWidths[f] ? `width:${colWidths[f]}ch;` : '';
+        const font = fontSizes[f] ? `font-size:${fontSizes[f]}pt;` : '';
+        const bg = bgColors[f] ? `background-color:${bgColors[f]};` : '';
+        const align = textAligns[f] ? `text-align:${textAligns[f]};` : '';
+        const bold = fontBolds[f] ? 'font-weight:bold;' : '';
+        html += `<td style="${width}${font}${bg}${align}${bold}">${r[f] || ''}</td>`;
       });
       html += '</tr>\n';
     });
