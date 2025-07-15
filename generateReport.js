@@ -97,6 +97,12 @@ function parseMetadata(reportName) {
     titleFontSize: reportInfo['Font Size'],
     titleBold: reportInfo['Font Bold'],
     titleColor: reportInfo['Font Color'],
+    titleFontName: reportInfo['Font Name'],
+    headerBackgroundColor: reportInfo['Header Background Color'],
+    headerFontColor: reportInfo['Header Font Color'],
+    headerFontSize: reportInfo['Header Font Size'],
+    headerFontBold: reportInfo['Header Font Bold'],
+    headerFontName: reportInfo['Header Font Name'],
     entries
   };
 }
@@ -149,16 +155,23 @@ function buildHtml(meta, rows) {
   if (meta.titleFontSize) titleStyles.push(`font-size:${meta.titleFontSize}pt;`);
   if (meta.titleColor) titleStyles.push(`color:${meta.titleColor};`);
   if ((meta.titleBold || '').toUpperCase() === 'Y') titleStyles.push('font-weight:bold;');
+  if (meta.titleFontName) titleStyles.push(`font-family:${meta.titleFontName};`);
   html += `<tr><td colspan="${dataFields.length}" style="${titleStyles.join('')}">${meta.title || ''}</td></tr>\n`;
   html += '<thead><tr>';
   dataFields.forEach(f => {
     const width = colWidths[f] ? `width:${colWidths[f]}ch;` : '';
+    const headerStyles = [];
+    if (meta.headerBackgroundColor) headerStyles.push(`background-color:${meta.headerBackgroundColor};`);
+    if (meta.headerFontColor) headerStyles.push(`color:${meta.headerFontColor};`);
+    if (meta.headerFontSize) headerStyles.push(`font-size:${meta.headerFontSize}pt;`);
+    if ((meta.headerFontBold || '').toUpperCase() === 'Y') headerStyles.push('font-weight:bold;');
+    if (meta.headerFontName) headerStyles.push(`font-family:${meta.headerFontName};`);
     const font = fontSizes[f] ? `font-size:${fontSizes[f]}pt;` : '';
     const family = fontNames[f] ? `font-family:${fontNames[f]};` : '';
     const bg = bgColors[f] ? `background-color:${bgColors[f]};` : '';
     const align = textAligns[f] ? `text-align:${textAligns[f]};` : '';
     const bold = fontBolds[f] ? 'font-weight:bold;' : '';
-    html += `<th style="${width}${font}${family}${bg}${align}${bold}">${f}</th>`;
+    html += `<th style="${width}${headerStyles.join('')}${font}${family}${bg}${align}${bold}">${f}</th>`;
   });
   html += '</tr></thead>\n<tbody>\n';
 
