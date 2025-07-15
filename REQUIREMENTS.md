@@ -40,6 +40,12 @@ For example, running `node generateReport.js "Employee Survey"` creates `Employe
    - **CSV File** – Path to the source CSV file.
    - **Title** – Report title shown in the output.
    - **Font Size**, **Font Bold**, **Font Color** – Optional title styling.
+   - **Header Background Color** - Optional hex color background for the column titles
+   - **Header Font Color** - Optional hex font color for the column titles
+   - **Header Font Size**  - Optional size of font to use for the column titles
+   - **Header Font Bold** - Optional bold Y/N indicator to use for the column titles
+   - **Header Font Name** - Optional name of font to use for the column titles
+   
 
 Only rows matching the specified `Report Name` are used when building the report.
 
