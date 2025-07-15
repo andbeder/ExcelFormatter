@@ -32,6 +32,7 @@ For example, running `node generateReport.js "Employee Survey"` creates `Employe
    - **Background Color** – Optional hex color for the cell background.
    - **Text Align** – Alignment for cell text (`left`, `center`, `right`).
    - **Font Bold** – `Y` to render the column in bold.
+   - **Font Name** - Optional name of font to use
    - **Report Name** – Name of the report to which the row applies.
 
 2. **Report Definitions (Sheet 2)** – Defines the overall report settings:
