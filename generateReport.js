@@ -20,8 +20,8 @@ function getSharedStrings() {
   return strings;
 }
 
-function getSheetRows(strings) {
-  const xml = execSync(`unzip -p "${META_FILE}" xl/worksheets/sheet1.xml`).toString();
+function getSheetRows(strings, sheet) {
+  const xml = execSync(`unzip -p "${META_FILE}" xl/worksheets/sheet${sheet}.xml`).toString();
   const rows = [];
   const rowRegex = /<row[^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
   let rm;
@@ -51,25 +51,54 @@ function getSheetRows(strings) {
 
 function parseMetadata(reportName) {
   const strings = getSharedStrings();
-  const rows = getSheetRows(strings);
-  const headerRow = rows[1];
-  const headerCols = Object.keys(headerRow);
-  const headers = headerCols.map(c => headerRow[c]);
-  const result = [];
-  for (let i = 2; i < rows.length; i++) {
-    const r = rows[i];
+  // sheet1 holds column definitions, sheet2 holds report definitions
+  const columnRows = getSheetRows(strings, 1);
+  const colHeader = columnRows[1];
+  const colHeaderCols = Object.keys(colHeader);
+  const colHeaders = colHeaderCols.map(c => colHeader[c]);
+  const entries = [];
+  for (let i = 2; i < columnRows.length; i++) {
+    const r = columnRows[i];
     if (!r) continue;
     const obj = {};
-    headers.forEach((h, idx) => {
-      const col = headerCols[idx];
+    colHeaders.forEach((h, idx) => {
+      const col = colHeaderCols[idx];
       obj[h] = r[col];
     });
     if (obj['Report Name'] === reportName) {
-      result.push(obj);
+      entries.push(obj);
     }
   }
-  if (!result.length) return null;
-  return { csvFile: result[0]['CSV File'], entries: result };
+
+  const reportRows = getSheetRows(strings, 2);
+  const repHeader = reportRows[1];
+  const repHeaderCols = Object.keys(repHeader);
+  const repHeaders = repHeaderCols.map(c => repHeader[c]);
+  let reportInfo = null;
+  for (let i = 2; i < reportRows.length; i++) {
+    const r = reportRows[i];
+    if (!r) continue;
+    const obj = {};
+    repHeaders.forEach((h, idx) => {
+      const col = repHeaderCols[idx];
+      obj[h] = r[col];
+    });
+    if (obj['Report Name'] === reportName) {
+      reportInfo = obj;
+      break;
+    }
+  }
+
+  if (!entries.length || !reportInfo) return null;
+
+  return {
+    csvFile: reportInfo['CSV File'],
+    title: reportInfo['Title'],
+    titleFontSize: reportInfo['Font Size'],
+    titleBold: reportInfo['Font Bold'],
+    titleColor: reportInfo['Font Color'],
+    entries
+  };
 }
 
 function parseCSV(file) {
@@ -108,6 +137,11 @@ function buildHtml(meta, rows) {
   });
 
   let html = '<html><head><meta charset="utf-8"><style>@page{size:landscape;}table{width:100%;}</style></head><body>\n<table border="1" cellspacing="0" cellpadding="3">\n';
+  const titleStyles = [];
+  if (meta.titleFontSize) titleStyles.push(`font-size:${meta.titleFontSize}pt;`);
+  if (meta.titleColor) titleStyles.push(`color:${meta.titleColor};`);
+  if ((meta.titleBold || '').toUpperCase() === 'Y') titleStyles.push('font-weight:bold;');
+  html += `<tr><td colspan="${dataFields.length}" style="${titleStyles.join('')}">${meta.title || ''}</td></tr>\n`;
   html += '<thead><tr>';
   dataFields.forEach(f => {
     const width = colWidths[f] ? `width:${colWidths[f]}ch;` : '';
