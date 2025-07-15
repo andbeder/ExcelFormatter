@@ -137,6 +137,12 @@ function buildHtml(meta, rows) {
   });
 
   let html = '<html><head><meta charset="utf-8"><style>@page{size:landscape;}table{width:100%;}</style></head><body>\n<table border="1" cellspacing="0" cellpadding="3">\n';
+  html += '<colgroup>';
+  dataFields.forEach(f => {
+    const w = colWidths[f];
+    html += w ? `<col style="width:${w}ch;">` : '<col>';
+  });
+  html += '</colgroup>\n';
   const titleStyles = [];
   if (meta.titleFontSize) titleStyles.push(`font-size:${meta.titleFontSize}pt;`);
   if (meta.titleColor) titleStyles.push(`color:${meta.titleColor};`);
