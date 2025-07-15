@@ -125,6 +125,7 @@ function buildHtml(meta, rows) {
   const bgColors = {};
   const textAligns = {};
   const fontBolds = {};
+  const fontNames = {};
   meta.entries.forEach(e => {
     const name = e['Field Name'];
     const width = parseFloat(e['Column Width']);
@@ -134,6 +135,7 @@ function buildHtml(meta, rows) {
     if (e['Background Color']) bgColors[name] = e['Background Color'];
     if (e['Text Align']) textAligns[name] = e['Text Align'].toLowerCase();
     if ((e['Font Bold'] || '').toUpperCase() === 'Y') fontBolds[name] = true;
+    if (e['Font Name']) fontNames[name] = e['Font Name'];
   });
 
   let html = '<html><head><meta charset="utf-8"><style>@page{size:landscape;}table{width:100%;}</style></head><body>\n<table border="1" cellspacing="0" cellpadding="3">\n';
@@ -152,10 +154,11 @@ function buildHtml(meta, rows) {
   dataFields.forEach(f => {
     const width = colWidths[f] ? `width:${colWidths[f]}ch;` : '';
     const font = fontSizes[f] ? `font-size:${fontSizes[f]}pt;` : '';
+    const family = fontNames[f] ? `font-family:${fontNames[f]};` : '';
     const bg = bgColors[f] ? `background-color:${bgColors[f]};` : '';
     const align = textAligns[f] ? `text-align:${textAligns[f]};` : '';
     const bold = fontBolds[f] ? 'font-weight:bold;' : '';
-    html += `<th style="${width}${font}${bg}${align}${bold}">${f}</th>`;
+    html += `<th style="${width}${font}${family}${bg}${align}${bold}">${f}</th>`;
   });
   html += '</tr></thead>\n<tbody>\n';
 
@@ -170,19 +173,21 @@ function buildHtml(meta, rows) {
     const caption = headerFields.map(h => list[0][h]).join(' - ');
     const h = headerFields[0];
     const font = h && fontSizes[h] ? `font-size:${fontSizes[h]}pt;` : '';
+    const family = h && fontNames[h] ? `font-family:${fontNames[h]};` : '';
     const bg = h && bgColors[h] ? `background-color:${bgColors[h]};` : '';
     const align = h && textAligns[h] ? `text-align:${textAligns[h]};` : 'text-align:left;';
     const bold = h && fontBolds[h] ? 'font-weight:bold;' : '';
-    html += `<tr><td colspan="${dataFields.length}" style="${bold}${align}${font}${bg}">${caption}</td></tr>\n`;
+    html += `<tr><td colspan="${dataFields.length}" style="${bold}${align}${font}${family}${bg}">${caption}</td></tr>\n`;
     list.forEach(r => {
       html += '<tr>';
       dataFields.forEach(f => {
         const width = colWidths[f] ? `width:${colWidths[f]}ch;` : '';
         const font = fontSizes[f] ? `font-size:${fontSizes[f]}pt;` : '';
+        const family = fontNames[f] ? `font-family:${fontNames[f]};` : '';
         const bg = bgColors[f] ? `background-color:${bgColors[f]};` : '';
         const align = textAligns[f] ? `text-align:${textAligns[f]};` : '';
         const bold = fontBolds[f] ? 'font-weight:bold;' : '';
-        html += `<td style="${width}${font}${bg}${align}${bold}">${r[f] || ''}</td>`;
+        html += `<td style="${width}${font}${family}${bg}${align}${bold}">${r[f] || ''}</td>`;
       });
       html += '</tr>\n';
     });
