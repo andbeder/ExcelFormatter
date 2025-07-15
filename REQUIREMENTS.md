@@ -65,7 +65,7 @@ Key operations performed by `generateReport.js` include:
 1. **Parsing the metadata workbook** – The script unzips the `.xlsx` file and extracts shared strings and worksheet XML to read cell values. ([source](generateReport.js#L12-L47))
 2. **Selecting entries** – Column definitions and report information are looked up by report name. ([source](generateReport.js#L55-L88))
 3. **Loading CSV rows** – The CSV file is read into an array of objects using the header row for property names. ([source](generateReport.js#L104-L116))
-4. **Building the HTML table** – Columns are styled according to width, font size, background color, alignment, and boldness. Data is grouped and rendered with header rows. ([source](generateReport.js#L119-L191))
+4. **Building the HTML table** – Columns are styled according to width, font size, background color, alignment, boldness, **and number formatting**. Data is grouped and rendered with header rows. ([source](generateReport.js#L119-L191))
 5. **Saving the file** – The generated HTML is saved with an `.xls` extension. ([source](generateReport.js#L195-L203))
 
 ## Example
