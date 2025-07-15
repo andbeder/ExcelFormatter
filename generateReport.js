@@ -154,7 +154,7 @@ function buildHtml(meta, rows) {
   meta.entries.forEach(e => {
     const name = e['Field Name'];
     const width = parseFloat(e['Column Width']);
-    if (!isNaN(width)) colWidths[name] = width;
+    if (!isNaN(width)) colWidths[name] = Math.floor(width * 16.25);
     const fnt = parseFloat(e['Font Size']);
     if (!isNaN(fnt)) fontSizes[name] = fnt;
     if (e['Background Color']) bgColors[name] = e['Background Color'];
@@ -168,7 +168,7 @@ function buildHtml(meta, rows) {
   html += '<colgroup>';
   dataFields.forEach(f => {
     const w = colWidths[f];
-    html += w ? `<col style="width:${w}ch;">` : '<col>';
+    html += w ? `<col style="width:${w};">` : '<col>';
   });
   html += '</colgroup>\n';
   const titleStyles = [];
@@ -179,7 +179,7 @@ function buildHtml(meta, rows) {
   html += `<tr><td colspan="${dataFields.length}" style="${titleStyles.join('')}">${meta.title || ''}</td></tr>\n`;
   html += '<thead><tr>';
   dataFields.forEach(f => {
-    const width = colWidths[f] ? `width:${colWidths[f]}ch;` : '';
+    const width = colWidths[f] ? `width:${colWidths[f]};` : '';
     const headerStyles = [];
     if (meta.headerBackgroundColor) headerStyles.push(`background-color:${meta.headerBackgroundColor};`);
     if (meta.headerFontColor) headerStyles.push(`color:${meta.headerFontColor};`);
@@ -214,7 +214,7 @@ function buildHtml(meta, rows) {
     list.forEach(r => {
       html += '<tr>';
       dataFields.forEach(f => {
-        const width = colWidths[f] ? `width:${colWidths[f]}ch;` : '';
+        const width = colWidths[f] ? `width:${colWidths[f]};` : '';
         const font = fontSizes[f] ? `font-size:${fontSizes[f]}pt;` : '';
         const family = fontNames[f] ? `font-family:${fontNames[f]};` : '';
         const bg = bgColors[f] ? `background-color:${bgColors[f]};` : '';
