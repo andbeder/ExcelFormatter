@@ -1,6 +1,7 @@
 const fs = require('fs');
 const { execSync } = require('child_process');
 const Excel = require('exceljs');
+const { parse } = require('csv-parse/sync');
 
 const REPORT_NAME = process.argv[2];
 const META_FILE = 'Formatter Metadata.xlsx';
@@ -50,31 +51,40 @@ function getSheetRows(strings, sheet) {
 
 function parseMetadata(reportName) {
   const strings = getSharedStrings();
-  // Read column definitions (tab 1)
+
+  // Tab 1: column definitions
   const columnRows = getSheetRows(strings, 1);
-  const colHeader = columnRows[1];
-  const colHeaderCols = Object.keys(colHeader);
-  const colHeaders = colHeaderCols.map(c => colHeader[c]);
-  const entries = [];
+  const headerRow = columnRows[1];
+  const headerCols = Object.keys(headerRow);
+  const colNames = headerCols.map(c => headerRow[c]);
+
+  let entries = [];
   for (let i = 2; i < columnRows.length; i++) {
     const r = columnRows[i];
     if (!r) continue;
     const obj = {};
-    colHeaders.forEach((h, idx) => { obj[h] = r[colHeaderCols[idx]]; });
-    if (obj['Report Name'] === reportName) entries.push(obj);
+    colNames.forEach((h, idx) => {
+      obj[h] = r[headerCols[idx]];
+    });
+    // only keep rows with a real Field Name
+    if (obj['Report Name'] === reportName && obj['Field Name'] && obj['Field Name'].trim()) {
+      entries.push(obj);
+    }
   }
 
-  // Read report info (tab 2)
+  // Tab 2: report info
   const reportRows = getSheetRows(strings, 2);
-  const repHeader = reportRows[1];
-  const repHeaderCols = Object.keys(repHeader);
-  const repHeaders = repHeaderCols.map(c => repHeader[c]);
+  const repHead = reportRows[1];
+  const repCols = Object.keys(repHead);
+  const repNames = repCols.map(c => repHead[c]);
   let reportInfo = null;
   for (let i = 2; i < reportRows.length; i++) {
     const r = reportRows[i];
     if (!r) continue;
     const obj = {};
-    repHeaders.forEach((h, idx) => { obj[h] = r[repHeaderCols[idx]]; });
+    repNames.forEach((h, idx) => {
+      obj[h] = r[repCols[idx]];
+    });
     if (obj['Report Name'] === reportName) {
       reportInfo = obj;
       break;
@@ -82,6 +92,7 @@ function parseMetadata(reportName) {
   }
 
   if (!entries.length || !reportInfo) return null;
+
   return {
     csvFile: reportInfo['CSV File'],
     title: reportInfo['Title'],
@@ -95,7 +106,6 @@ function parseMetadata(reportName) {
     headerFontBold: (reportInfo['Header Font Bold'] || '').toUpperCase() === 'Y',
     headerFontName: reportInfo['Header Font Name'],
     borderColor: reportInfo['Border Color'],
-    // New print settings:
     pageOrientation: (reportInfo['Page Orientation'] || 'portrait').toLowerCase(),
     printPagesWidth: parseInt(reportInfo['Print Pages Width'], 10) || 1,
     entries
@@ -103,34 +113,28 @@ function parseMetadata(reportName) {
 }
 
 function parseCSV(file) {
-  const text = fs.readFileSync(file, 'utf8').trim();
-  const lines = text.split(/\r?\n/);
-  const splitRe = /,(?=(?:[^"]*"[^"]*")*[^"]*$)/;
-  const headers = lines.shift().split(splitRe).map(h => h.replace(/^"|"$/g, '').replace(/""/g, '"'));
-  return lines.map(line => {
-    if (!line.trim()) return null;
-    const cells = line.split(splitRe).map(c => c.replace(/^"|"$/g, '').replace(/""/g, '"'));
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = cells[i]; });
-    return obj;
-  }).filter(Boolean);
+  const text = fs.readFileSync(file, 'utf8');
+  return parse(text, {
+    columns: true,
+    skip_empty_lines: true,
+    trim: true
+  });
 }
 
 async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
   const workbook = new Excel.Workbook();
   const sheet = workbook.addWorksheet(meta.title || reportName || 'Report');
-
   const sanitize = val => typeof val === 'string' ? val.replace(/"/g, '""') : val;
 
+  // precompute styles
   const borderArgb = hexToARGB(meta.borderColor);
-  const tableBorder = borderArgb ? {
+  const tableBorder = borderArgb && {
     top: { style: 'thin', color: { argb: borderArgb } },
     left: { style: 'thin', color: { argb: borderArgb } },
     bottom: { style: 'thin', color: { argb: borderArgb } },
     right: { style: 'thin', color: { argb: borderArgb } }
-  } : undefined;
+  };
 
-  // Setup page orientation and fit-to-width
   sheet.pageSetup = {
     orientation: meta.pageOrientation,
     fitToPage: true,
@@ -138,7 +142,7 @@ async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
     fitToHeight: 0
   };
 
-  // Determine group header fields vs data fields
+  // split header-vs-data fields
   const headerFields = meta.entries
     .filter(e => (e['Is Header'] || '').toUpperCase() === 'Y')
     .map(e => e['Field Name']);
@@ -146,20 +150,20 @@ async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
     .filter(e => (e['Is Header'] || '').toUpperCase() !== 'Y')
     .map(e => e['Field Name']);
 
-  // Precompute styling maps
+  // collect formatting maps
   const numberFormats = {}, bgColors = {}, textAligns = {}, fontSizes = {}, fontNames = {}, fontBolds = {}, wrapTexts = {};
   meta.entries.forEach(e => {
-    const name = e['Field Name'];
-    if (e['Number Format']) numberFormats[name] = e['Number Format'];
-    if (e['Background Color']) bgColors[name] = e['Background Color'];
-    if (e['Text Align']) textAligns[name] = e['Text Align'].toLowerCase();
-    if (e['Font Size']) fontSizes[name] = parseFloat(e['Font Size']);
-    if (e['Font Name']) fontNames[name] = e['Font Name'];
-    if ((e['Font Bold'] || '').toUpperCase() === 'Y') fontBolds[name] = true;
-    if ((e['Wrap Text'] || '').toUpperCase() === 'Y') wrapTexts[name] = true;
+    const n = e['Field Name'];
+    if (e['Number Format'])    numberFormats[n] = e['Number Format'];
+    if (e['Background Color']) bgColors[n]     = e['Background Color'];
+    if (e['Text Align'])       textAligns[n]   = e['Text Align'].toLowerCase();
+    if (e['Font Size'])        fontSizes[n]    = parseFloat(e['Font Size']);
+    if (e['Font Name'])        fontNames[n]    = e['Font Name'];
+    if ((e['Font Bold']||'').toUpperCase()==='Y') fontBolds[n] = true;
+    if ((e['Wrap Text']||'').toUpperCase()==='Y') wrapTexts[n] = true;
   });
 
-  // Configure columns
+  // set columns
   sheet.columns = dataFields.map(f => {
     const entry = meta.entries.find(e => e['Field Name'] === f);
     const w = parseFloat(entry['Column Width']);
@@ -169,87 +173,107 @@ async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
   // Title
   const titleRow = sheet.addRow([sanitize(meta.title || '')]);
   sheet.mergeCells(titleRow.number, 1, titleRow.number, dataFields.length);
-  const titleFont = { name: meta.titleFontName, size: meta.titleFontSize, bold: meta.titleBold };
-  const titleArgb = hexToARGB(meta.titleColor);
-  if (titleArgb) titleFont.color = { argb: titleArgb };
-  titleRow.font = titleFont;
+  const tf = { name: meta.titleFontName, size: meta.titleFontSize, bold: meta.titleBold };
+  const tc = hexToARGB(meta.titleColor);
+  if (tc) tf.color = { argb: tc };
+  titleRow.font = tf;
 
-  // Header row styling
+  // Column headers
   const headerRow = sheet.addRow(dataFields.map(sanitize));
-  headerRow.eachCell((cell, colNumber) => {
-    const field = dataFields[colNumber - 1];
-    const font = { name: meta.headerFontName, size: meta.headerFontSize, bold: meta.headerFontBold };
-    const fColor = hexToARGB(meta.headerFontColor);
-    if (fColor) font.color = { argb: fColor };
-    cell.font = font;
-
+  headerRow.eachCell((cell, idx) => {
+    const f = dataFields[idx - 1];
+    const fnt = { name: meta.headerFontName, size: meta.headerFontSize, bold: meta.headerFontBold };
+    const hc = hexToARGB(meta.headerFontColor);
+    if (hc) fnt.color = { argb: hc };
+    cell.font      = fnt;
     const bg = hexToARGB(meta.headerBackgroundColor);
     if (bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
     cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     if (tableBorder) cell.border = tableBorder;
   });
 
-  // Group rows
-  const groups = {};
-  rows.forEach(r => {
-    const key = headerFields.map(h => r[h]).join('||');
-    (groups[key] = groups[key] || []).push(r);
-  });
+  // build grouping (or fall back to a single un-captioned group)
+  let groupEntries = [];
+  if (headerFields.length > 0) {
+    const groups = {};
+    rows.forEach(r => {
+      const key = headerFields.map(h => r[h]).join('||');
+      (groups[key] = groups[key] || []).push(r);
+    });
+    groupEntries = Object.entries(groups)
+      .map(([_, list]) => {
+        const caption = headerFields.map(h => {
+          const raw = list[0][h], fmt = numberFormats[h];
+          if (fmt) {
+            const dec = fmt.includes('.') ? fmt.split('.')[1].length : 0;
+            return new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: dec,
+              maximumFractionDigits: dec
+            }).format(isNaN(+raw) ? raw : +raw);
+          }
+          return sanitize(raw);
+        }).join(' - ');
+        return { list, caption };
+      })
+      .sort((a, b) => a.caption.localeCompare(b.caption, 'en', { sensitivity: 'base' }));
+  } else {
+    groupEntries = [{ list: rows, caption: null }];
+  }
 
-  Object.entries(groups).forEach(([key, list]) => {
-    // Group caption row
-    const caption = headerFields.map(h => {
-      const raw = list[0][h]; const fmt = numberFormats[h];
-      if (fmt) {
-        const decimals = fmt.includes('.') ? fmt.split('.')[1].length : 0;
-        return new Intl.NumberFormat('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
-          .format(isNaN(+raw) ? raw : +raw);
-      }
-      return sanitize(raw);
-    }).join(' - ');
-
-    const groupRow = sheet.addRow([caption]);
-    sheet.mergeCells(groupRow.number, 1, groupRow.number, dataFields.length);
-    const gFont = { name: fontNames[headerFields[0]], size: fontSizes[headerFields[0]], bold: fontBolds[headerFields[0]] };
-    const gColor = hexToARGB(meta.headerFontColor);
-    if (gColor) gFont.color = { argb: gColor };
-    groupRow.font = gFont;
-    const gBg = hexToARGB(bgColors[headerFields[0]]);
-    if (gBg) groupRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: gBg } };
-    groupRow.alignment = { horizontal: textAligns[headerFields[0]] || 'left' };
-    if (tableBorder) {
-      for (let i = 1; i <= dataFields.length; i++) {
-        groupRow.getCell(i).border = tableBorder;
+  // render each group
+  groupEntries.forEach(({ list, caption }) => {
+    // only emit a caption row if it’s non-empty
+    if (caption) {
+      const gr = sheet.addRow([caption]);
+      sheet.mergeCells(gr.number, 1, gr.number, dataFields.length);
+      const gf = {
+        name:  fontNames[headerFields[0]],
+        size:  fontSizes[headerFields[0]],
+        bold:  fontBolds[headerFields[0]]
+      };
+      const gcol = hexToARGB(meta.headerFontColor);
+      if (gcol) gf.color = { argb: gcol };
+      gr.font = gf;
+      const gbg = hexToARGB(bgColors[headerFields[0]]);
+      if (gbg) gr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: gbg } };
+      gr.alignment = { horizontal: textAligns[headerFields[0]] || 'left' };
+      if (tableBorder) {
+        for (let c = 1; c <= dataFields.length; c++) {
+          gr.getCell(c).border = tableBorder;
+        }
       }
     }
 
-    // Data rows
+    // then data rows
     list.forEach(r => {
-      const vals = dataFields.map(f => {
-        const raw = numberFormats[f] ? parseFloat(r[f]) || r[f] : r[f];
+      const vals = dataFields.map(fld => {
+        const raw = numberFormats[fld]
+          ? (parseFloat(r[fld]) || r[fld])
+          : r[fld];
         return typeof raw === 'string' ? sanitize(raw) : raw;
       });
-      const dataRow = sheet.addRow(vals);
-      dataFields.forEach((f, i) => {
-        const cell = dataRow.getCell(i+1);
-        const fnt = {};
-        if (fontNames[f]) fnt.name = fontNames[f];
-        if (fontSizes[f]) fnt.size = fontSizes[f];
-        if (fontBolds[f]) fnt.bold = true;
-        const cArgb = hexToARGB(meta.headerFontColor);
-        if (fontBolds[f] && cArgb) fnt.color = { argb: cArgb };
-        if (Object.keys(fnt).length) cell.font = fnt;
-
-        const bgArgb = hexToARGB(bgColors[f]);
-        if (bgArgb) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } };
-        cell.alignment = { horizontal: textAligns[f] || 'left', wrapText: wrapTexts[f] };
+      const dr = sheet.addRow(vals);
+      dataFields.forEach((fld, i) => {
+        const cell = dr.getCell(i + 1);
+        const fn = {};
+        if (fontNames[fld]) fn.name = fontNames[fld];
+        if (fontSizes[fld]) fn.size = fontSizes[fld];
+        if (fontBolds[fld]) {
+          fn.bold = true;
+          const hc2 = hexToARGB(meta.headerFontColor);
+          if (hc2) fn.color = { argb: hc2 };
+        }
+        if (Object.keys(fn).length) cell.font = fn;
+        const bgc = hexToARGB(bgColors[fld]);
+        if (bgc) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgc } };
+        cell.alignment = { horizontal: textAligns[fld] || 'left', wrapText: wrapTexts[fld] };
         if (tableBorder) cell.border = tableBorder;
-        if (numberFormats[f]) cell.numFmt = numberFormats[f];
+        if (numberFormats[fld]) cell.numFmt = numberFormats[fld];
       });
     });
   });
 
-  // Save
+  // save
   const outFile = `${(reportName || 'report').replace(/\s+/g, '_')}.xlsx`;
   await workbook.xlsx.writeFile(outFile);
   console.log(`Generated ${outFile}`);
