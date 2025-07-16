@@ -99,6 +99,7 @@ function parseMetadata(reportName) {
     headerFontSize: parseFloat(reportInfo['Header Font Size']),
     headerFontBold: (reportInfo['Header Font Bold'] || '').toUpperCase() === 'Y',
     headerFontName: reportInfo['Header Font Name'],
+    borderColor: reportInfo['Border Color'],
     // New print settings:
     pageOrientation: (reportInfo['Page Orientation'] || 'portrait').toLowerCase(),
     printPagesWidth: parseInt(reportInfo['Print Pages Width'], 10) || 1,
@@ -109,10 +110,11 @@ function parseMetadata(reportName) {
 function parseCSV(file) {
   const text = fs.readFileSync(file, 'utf8').trim();
   const lines = text.split(/\r?\n/);
-  const headers = lines.shift().split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+  const splitRe = /,(?=(?:[^"]*"[^"]*")*[^"]*$)/;
+  const headers = lines.shift().split(splitRe).map(h => h.replace(/^"|"$/g, '').replace(/""/g, '"'));
   return lines.map(line => {
     if (!line.trim()) return null;
-    const cells = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c => c.replace(/^"|"$/g, ''));
+    const cells = line.split(splitRe).map(c => c.replace(/^"|"$/g, '').replace(/""/g, '"'));
     const obj = {};
     headers.forEach((h, i) => { obj[h] = cells[i]; });
     return obj;
@@ -122,6 +124,14 @@ function parseCSV(file) {
 async function buildWorkbook(meta, rows) {
   const workbook = new Excel.Workbook();
   const sheet = workbook.addWorksheet(meta.title || REPORT_NAME);
+
+  const borderArgb = hexToARGB(meta.borderColor);
+  const tableBorder = borderArgb ? {
+    top: { style: 'thin', color: { argb: borderArgb } },
+    left: { style: 'thin', color: { argb: borderArgb } },
+    bottom: { style: 'thin', color: { argb: borderArgb } },
+    right: { style: 'thin', color: { argb: borderArgb } }
+  } : undefined;
 
   // Setup page orientation and fit-to-width
   sheet.pageSetup = {
@@ -137,7 +147,21 @@ async function buildWorkbook(meta, rows) {
     .map(e => e['Field Name']);
   const dataFields = meta.entries
     .filter(e => (e['Is Header'] || '').toUpperCase() !== 'Y')
-    .map(e => e['Field Name']);
+    .map(e => e['Field Name'])
+    .sort((a, b) => a.localeCompare(b));
+
+  // Precompute styling maps
+  const numberFormats = {}, bgColors = {}, textAligns = {}, fontSizes = {}, fontNames = {}, fontBolds = {}, wrapTexts = {};
+  meta.entries.forEach(e => {
+    const name = e['Field Name'];
+    if (e['Number Format']) numberFormats[name] = e['Number Format'];
+    if (e['Background Color']) bgColors[name] = e['Background Color'];
+    if (e['Text Align']) textAligns[name] = e['Text Align'].toLowerCase();
+    if (e['Font Size']) fontSizes[name] = parseFloat(e['Font Size']);
+    if (e['Font Name']) fontNames[name] = e['Font Name'];
+    if ((e['Font Bold'] || '').toUpperCase() === 'Y') fontBolds[name] = true;
+    if ((e['Wrap Text'] || '').toUpperCase() === 'Y') wrapTexts[name] = true;
+  });
 
   // Configure columns
   sheet.columns = dataFields.map(f => {
@@ -156,7 +180,8 @@ async function buildWorkbook(meta, rows) {
 
   // Header row styling
   const headerRow = sheet.addRow(dataFields);
-  headerRow.eachCell(cell => {
+  headerRow.eachCell((cell, colNumber) => {
+    const field = dataFields[colNumber - 1];
     const font = { name: meta.headerFontName, size: meta.headerFontSize, bold: meta.headerFontBold };
     const fColor = hexToARGB(meta.headerFontColor);
     if (fColor) font.color = { argb: fColor };
@@ -164,19 +189,8 @@ async function buildWorkbook(meta, rows) {
 
     const bg = hexToARGB(meta.headerBackgroundColor);
     if (bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
-    cell.alignment = { horizontal: 'center', vertical: 'middle' };
-  });
-
-  // Precompute styling maps
-  const numberFormats = {}, bgColors = {}, textAligns = {}, fontSizes = {}, fontNames = {}, fontBolds = {};
-  meta.entries.forEach(e => {
-    const name = e['Field Name'];
-    if (e['Number Format']) numberFormats[name] = e['Number Format'];
-    if (e['Background Color']) bgColors[name] = e['Background Color'];
-    if (e['Text Align']) textAligns[name] = e['Text Align'].toLowerCase();
-    if (e['Font Size']) fontSizes[name] = parseFloat(e['Font Size']);
-    if (e['Font Name']) fontNames[name] = e['Font Name'];
-    if ((e['Font Bold'] || '').toUpperCase() === 'Y') fontBolds[name] = true;
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: wrapTexts[field] };
+    if (tableBorder) cell.border = tableBorder;
   });
 
   // Group rows
@@ -207,6 +221,11 @@ async function buildWorkbook(meta, rows) {
     const gBg = hexToARGB(bgColors[headerFields[0]]);
     if (gBg) groupRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: gBg } };
     groupRow.alignment = { horizontal: textAligns[headerFields[0]] || 'left' };
+    if (tableBorder) {
+      for (let i = 1; i <= dataFields.length; i++) {
+        groupRow.getCell(i).border = tableBorder;
+      }
+    }
 
     // Data rows
     list.forEach(r => {
@@ -224,7 +243,8 @@ async function buildWorkbook(meta, rows) {
 
         const bgArgb = hexToARGB(bgColors[f]);
         if (bgArgb) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } };
-        cell.alignment = { horizontal: textAligns[f] || 'left' };
+        cell.alignment = { horizontal: textAligns[f] || 'left', wrapText: wrapTexts[f] };
+        if (tableBorder) cell.border = tableBorder;
         if (numberFormats[f]) cell.numFmt = numberFormats[f];
       });
     });
