@@ -34,6 +34,7 @@ For example, running `node generateReport.js "Employee Survey"` creates `Employe
    - **Font Bold** – `Y` to render the column in bold.
    - **Font Name** - Optional name of font to use
    - **Number Format** - Optional Excel-style number formatting for the cell
+   - **Wrap Text** - `Y` to wrap the cell contents
    - **Report Name** – Name of the report to which the row applies.
 
 2. **Report Definitions (Sheet 2)** – Defines the overall report settings:
@@ -46,17 +47,18 @@ For example, running `node generateReport.js "Employee Survey"` creates `Employe
    - **Header Font Size**  - Optional size of font to use for the column titles
    - **Header Font Bold** - Optional bold Y/N indicator to use for the column titles
    - **Header Font Name** - Optional name of font to use for the column titles
+   - **Border Color** - Hex color used for table borders
    
 
 Only rows matching the specified `Report Name` are used when building the report.
 
 ## CSV data
 
-The CSV file must contain headers matching the field names referenced in the metadata. `Employee_Survey_Data.csv` is provided as an example. The parser handles commas inside quoted text.
+The CSV file must contain headers matching the field names referenced in the metadata. `Employee_Survey_Data.csv` is provided as an example. The parser handles commas inside quoted text and properly unescapes doubled quotation marks.
 
 ## Output
 
-The script reads the CSV rows, groups them by the fields marked `Is Header`, and then generates an HTML table with styling defined by the metadata. The output is written as `<Report_Name_With_Underscores>.xls` so that spreadsheet applications can open it directly. The header rows are sorted first, and then the records are sorted according to the first column.
+The script reads the CSV rows, groups them by the fields marked `Is Header`, and then generates an HTML table with styling defined by the metadata. The output is written as `<Report_Name_With_Underscores>.xls` so that spreadsheet applications can open it directly. Column headers are sorted alphabetically and the records are sorted according to the first column.
 
 All cell contents are HTML-escaped in the generated output so that special characters display correctly.
 
