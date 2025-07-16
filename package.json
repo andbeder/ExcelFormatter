@@ -12,7 +12,8 @@
   "type": "commonjs",
   "dependencies": {
     "csv-parse": "^6.0.0",
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "pdfkit": "^0.17.1"
   },
   "devDependencies": {
     "chai": "^5.2.1",

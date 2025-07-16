@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const Excel = require('exceljs');
+const PDFDocument = require('pdfkit');
 const { parse } = require('csv-parse/sync');
 
 const REPORT_NAME = process.argv[2];
@@ -125,6 +126,8 @@ function parseMetadata(reportName) {
     borderColor: reportInfo['Border Color'],
     pageOrientation: (reportInfo['Page Orientation'] || 'portrait').toLowerCase(),
     printPagesWidth: parseInt(reportInfo['Print Pages Width'], 10) || 1,
+    outputTarget: (reportInfo['Output Target'] || 'XLSX').toUpperCase(),
+    headingType: (reportInfo['Heading Type'] || 'Group').toUpperCase(),
     entries
   };
 }
@@ -183,7 +186,7 @@ async function parseSource(file) {
   return parseCSV(file);
 }
 
-async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
+async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
   const workbook = new Excel.Workbook();
   const sheet = workbook.addWorksheet(meta.title || reportName || 'Report');
   const sanitize = val => typeof val === 'string' ? val.replace(/"/g, '""') : val;
@@ -283,9 +286,9 @@ async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
   }
 
   // render each group
-  groupEntries.forEach(({ list, caption }) => {
+  groupEntries.forEach(({ list, caption }, gIdx) => {
     // only emit a caption row if it’s non-empty
-    if (caption) {
+    if (caption && meta.headingType === 'GROUP') {
       const gr = sheet.addRow([caption]);
       sheet.mergeCells(gr.number, 1, gr.number, dataFields.length);
       const gf = {
@@ -307,6 +310,7 @@ async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
     }
 
     // then data rows
+    let lastRowObj = null;
     list.forEach(r => {
       const vals = dataFields.map(fld => {
         const raw = numberFormats[fld]
@@ -315,6 +319,7 @@ async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
         return typeof raw === 'string' ? sanitize(raw) : raw;
       });
       const dr = sheet.addRow(vals);
+      lastRowObj = dr;
       dataFields.forEach((fld, i) => {
         const cell = dr.getCell(i + 1);
         const fn = {};
@@ -333,12 +338,80 @@ async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
         if (numberFormats[fld]) cell.numFmt = numberFormats[fld];
       });
     });
+    if (meta.headingType === 'PAGE' && gIdx < groupEntries.length - 1 && lastRowObj) {
+      lastRowObj.addPageBreak();
+    }
   });
 
   // save
   const outFile = `${(reportName || 'report').replace(/\s+/g, '_')}.xlsx`;
   await workbook.xlsx.writeFile(outFile);
   console.log(`Generated ${outFile}`);
+}
+
+async function buildPdf(meta, rows, reportName = REPORT_NAME) {
+  const doc = new PDFDocument({ size: 'A4', layout: meta.pageOrientation });
+  const outFile = `${(reportName || 'report').replace(/\s+/g, '_')}.pdf`;
+  doc.pipe(fs.createWriteStream(outFile));
+
+  // Title
+  if (meta.titleColor) doc.fillColor(meta.titleColor);
+  doc.font(meta.titleBold ? 'Helvetica-Bold' : 'Helvetica');
+  doc.fontSize(meta.titleFontSize || 12).text(meta.title || reportName, {
+    align: 'center',
+  });
+  doc.moveDown();
+
+  const headerFields = meta.entries
+    .filter(e => (e['Is Header'] || '').toUpperCase() === 'Y')
+    .map(e => e['Field Name']);
+  const dataFields = meta.entries
+    .filter(e => (e['Is Header'] || '').toUpperCase() !== 'Y')
+    .map(e => e['Field Name']);
+
+  doc.fontSize(meta.headerFontSize || 12).font(meta.headerFontBold ? 'Helvetica-Bold' : 'Helvetica');
+  doc.text(dataFields.join(' | '));
+  doc.moveDown(0.5);
+
+  // group rows
+  let groupEntries = [];
+  if (headerFields.length > 0) {
+    const groups = {};
+    rows.forEach(r => {
+      const key = headerFields.map(h => r[h]).join('||');
+      (groups[key] = groups[key] || []).push(r);
+    });
+    groupEntries = Object.entries(groups)
+      .map(([_, list]) => ({ list, caption: headerFields.map(h => rFormat(list[0][h])).join(' - ') }));
+  } else {
+    groupEntries = [{ list: rows, caption: null }];
+  }
+
+  function rFormat(val) {
+    return typeof val === 'string' ? val : String(val);
+  }
+
+  groupEntries.forEach(({ list, caption }, idx) => {
+    if (idx && meta.headingType === 'PAGE') doc.addPage();
+    if (caption && meta.headingType === 'GROUP') {
+      doc.font(meta.headerFontBold ? 'Helvetica-Bold' : 'Helvetica');
+      doc.text(caption);
+    }
+    list.forEach(r => {
+      const line = dataFields.map(f => r[f]).join(' | ');
+      doc.font('Helvetica').text(line);
+    });
+  });
+
+  doc.end();
+  console.log(`Generated ${outFile}`);
+}
+
+async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
+  if ((meta.outputTarget || 'XLSX') === 'PDF') {
+    return buildPdf(meta, rows, reportName);
+  }
+  return buildXlsx(meta, rows, reportName);
 }
 
 if (require.main === module) {
