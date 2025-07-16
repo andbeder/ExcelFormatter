@@ -117,11 +117,27 @@ function parseCSV(file) {
   if (text.charCodeAt(0) === 0xFEFF) {
     text = text.slice(1);
   }
-  return parse(text, {
+  let rows = parse(text, {
     columns: true,
     skip_empty_lines: true,
     trim: true
   });
+
+  // Replace newline characters in each value with a space
+  rows = rows.map(row => {
+    Object.keys(row).forEach(key => {
+      if (typeof row[key] === 'string') {
+        row[key] = row[key].replace(/[\r\n]+/g, ' ');
+      }
+    });
+    return row;
+  });
+
+  // Filter out rows that are completely blank after trimming
+  rows = rows.filter(row =>
+    Object.values(row).some(v => String(v).trim() !== '')
+  );
+  return rows;
 }
 
 async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
