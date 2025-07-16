@@ -103,6 +103,7 @@ function parseMetadata(reportName) {
     if (obj['Report Name'] === reportName) {
       reportInfo = obj;
       csvFile = r['B'];
+      console.log("CSV Filename: " + csvFile);
       break;
     }
   }
