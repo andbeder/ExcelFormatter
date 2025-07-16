@@ -2,11 +2,6 @@ const fs = require('fs');
 const { execSync } = require('child_process');
 const Excel = require('exceljs');
 
-if (process.argv.length < 3) {
-  console.error('Usage: node generateReport.js "<Report Name>"');
-  process.exit(1);
-}
-
 const REPORT_NAME = process.argv[2];
 const META_FILE = 'Formatter Metadata.xlsx';
 
@@ -121,9 +116,11 @@ function parseCSV(file) {
   }).filter(Boolean);
 }
 
-async function buildWorkbook(meta, rows) {
+async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
   const workbook = new Excel.Workbook();
-  const sheet = workbook.addWorksheet(meta.title || REPORT_NAME);
+  const sheet = workbook.addWorksheet(meta.title || reportName || 'Report');
+
+  const sanitize = val => typeof val === 'string' ? val.replace(/"/g, '""') : val;
 
   const borderArgb = hexToARGB(meta.borderColor);
   const tableBorder = borderArgb ? {
@@ -147,8 +144,7 @@ async function buildWorkbook(meta, rows) {
     .map(e => e['Field Name']);
   const dataFields = meta.entries
     .filter(e => (e['Is Header'] || '').toUpperCase() !== 'Y')
-    .map(e => e['Field Name'])
-    .sort((a, b) => a.localeCompare(b));
+    .map(e => e['Field Name']);
 
   // Precompute styling maps
   const numberFormats = {}, bgColors = {}, textAligns = {}, fontSizes = {}, fontNames = {}, fontBolds = {}, wrapTexts = {};
@@ -171,7 +167,7 @@ async function buildWorkbook(meta, rows) {
   });
 
   // Title
-  const titleRow = sheet.addRow([meta.title || '']);
+  const titleRow = sheet.addRow([sanitize(meta.title || '')]);
   sheet.mergeCells(titleRow.number, 1, titleRow.number, dataFields.length);
   const titleFont = { name: meta.titleFontName, size: meta.titleFontSize, bold: meta.titleBold };
   const titleArgb = hexToARGB(meta.titleColor);
@@ -179,7 +175,7 @@ async function buildWorkbook(meta, rows) {
   titleRow.font = titleFont;
 
   // Header row styling
-  const headerRow = sheet.addRow(dataFields);
+  const headerRow = sheet.addRow(dataFields.map(sanitize));
   headerRow.eachCell((cell, colNumber) => {
     const field = dataFields[colNumber - 1];
     const font = { name: meta.headerFontName, size: meta.headerFontSize, bold: meta.headerFontBold };
@@ -189,7 +185,7 @@ async function buildWorkbook(meta, rows) {
 
     const bg = hexToARGB(meta.headerBackgroundColor);
     if (bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
-    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: wrapTexts[field] };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     if (tableBorder) cell.border = tableBorder;
   });
 
@@ -209,7 +205,7 @@ async function buildWorkbook(meta, rows) {
         return new Intl.NumberFormat('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
           .format(isNaN(+raw) ? raw : +raw);
       }
-      return raw;
+      return sanitize(raw);
     }).join(' - ');
 
     const groupRow = sheet.addRow([caption]);
@@ -229,7 +225,10 @@ async function buildWorkbook(meta, rows) {
 
     // Data rows
     list.forEach(r => {
-      const vals = dataFields.map(f => numberFormats[f] ? parseFloat(r[f]) || r[f] : r[f]);
+      const vals = dataFields.map(f => {
+        const raw = numberFormats[f] ? parseFloat(r[f]) || r[f] : r[f];
+        return typeof raw === 'string' ? sanitize(raw) : raw;
+      });
       const dataRow = sheet.addRow(vals);
       dataFields.forEach((f, i) => {
         const cell = dataRow.getCell(i+1);
@@ -251,17 +250,21 @@ async function buildWorkbook(meta, rows) {
   });
 
   // Save
-  const outFile = `${REPORT_NAME.replace(/\s+/g, '_')}.xlsx`;
+  const outFile = `${(reportName || 'report').replace(/\s+/g, '_')}.xlsx`;
   await workbook.xlsx.writeFile(outFile);
   console.log(`Generated ${outFile}`);
 }
 
-(async () => {
-  const meta = parseMetadata(REPORT_NAME);
-  if (!meta) {
-    console.error('Report not found in metadata');
-    process.exit(1);
-  }
-  const csvRows = parseCSV(meta.csvFile);
-  await buildWorkbook(meta, csvRows);
-})();
+if (require.main === module) {
+  (async () => {
+    const meta = parseMetadata(REPORT_NAME);
+    if (!meta) {
+      console.error('Report not found in metadata');
+      process.exit(1);
+    }
+    const csvRows = parseCSV(meta.csvFile);
+    await buildWorkbook(meta, csvRows, REPORT_NAME);
+  })();
+}
+
+module.exports = { parseMetadata, parseCSV, buildWorkbook };
