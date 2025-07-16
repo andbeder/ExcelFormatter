@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const { execSync } = require('child_process');
 const Excel = require('exceljs');
 const { parse } = require('csv-parse/sync');
@@ -138,6 +139,32 @@ function parseCSV(file) {
     Object.values(row).some(v => String(v).trim() !== '')
   );
   return rows;
+}
+
+async function parseSource(file) {
+  const ext = path.extname(file).toLowerCase();
+  if (ext === '.xlsx') {
+    const wb = new Excel.Workbook();
+    await wb.xlsx.readFile(file);
+    const ws = wb.worksheets[0];
+    if (!ws) return [];
+    const headers = ws.getRow(1).values.slice(1).map(h => (h || '').toString().trim());
+    const rows = [];
+    ws.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const obj = {};
+      let has = false;
+      headers.forEach((h, idx) => {
+        let val = row.getCell(idx + 1).text;
+        if (typeof val === 'string') val = val.replace(/[\r\n]+/g, ' ');
+        obj[h] = val;
+        if (String(val).trim() !== '') has = true;
+      });
+      if (has) rows.push(obj);
+    });
+    return rows;
+  }
+  return parseCSV(file);
 }
 
 async function buildWorkbook(meta, rows, reportName = REPORT_NAME) {
@@ -305,9 +332,9 @@ if (require.main === module) {
       console.error('Report not found in metadata');
       process.exit(1);
     }
-    const csvRows = parseCSV(meta.csvFile);
-    await buildWorkbook(meta, csvRows, REPORT_NAME);
+    const rows = await parseSource(meta.csvFile);
+    await buildWorkbook(meta, rows, REPORT_NAME);
   })();
 }
 
-module.exports = { parseMetadata, parseCSV, buildWorkbook };
+module.exports = { parseMetadata, parseCSV, parseSource, buildWorkbook };
