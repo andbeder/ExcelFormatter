@@ -113,7 +113,10 @@ function parseMetadata(reportName) {
 }
 
 function parseCSV(file) {
-  const text = fs.readFileSync(file, 'utf8');
+  let text = fs.readFileSync(file, 'utf8');
+  if (text.charCodeAt(0) === 0xFEFF) {
+    text = text.slice(1);
+  }
   return parse(text, {
     columns: true,
     skip_empty_lines: true,
