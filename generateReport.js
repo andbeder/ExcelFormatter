@@ -23,6 +23,17 @@ function getSharedStrings() {
   return strings;
 }
 
+function getSheetIndexByName(name) {
+  const xml = execSync(`unzip -p "${META_FILE}" xl/workbook.xml`).toString();
+  const regex = /<sheet[^>]*name="([^"]+)"[^>]*>/g;
+  let m, idx = 0;
+  while ((m = regex.exec(xml))) {
+    idx++;
+    if (m[1] === name) return idx;
+  }
+  return null;
+}
+
 function getSheetRows(strings, sheet) {
   const xml = execSync(`unzip -p "${META_FILE}" xl/worksheets/sheet${sheet}.xml`).toString();
   const rows = [];
@@ -54,7 +65,8 @@ function parseMetadata(reportName) {
   const strings = getSharedStrings();
 
   // Tab 1: column definitions
-  const columnRows = getSheetRows(strings, 1);
+  const colSheet = getSheetIndexByName('Columns') || 1;
+  const columnRows = getSheetRows(strings, colSheet);
   const headerRow = columnRows[1];
   const headerCols = Object.keys(headerRow);
   const colNames = headerCols.map(c => headerRow[c]);
@@ -74,11 +86,13 @@ function parseMetadata(reportName) {
   }
 
   // Tab 2: report info
-  const reportRows = getSheetRows(strings, 2);
+  const repSheet = getSheetIndexByName('Reports') || 2;
+  const reportRows = getSheetRows(strings, repSheet);
   const repHead = reportRows[1];
   const repCols = Object.keys(repHead);
   const repNames = repCols.map(c => repHead[c]);
   let reportInfo = null;
+  let csvFile = null;
   for (let i = 2; i < reportRows.length; i++) {
     const r = reportRows[i];
     if (!r) continue;
@@ -88,6 +102,7 @@ function parseMetadata(reportName) {
     });
     if (obj['Report Name'] === reportName) {
       reportInfo = obj;
+      csvFile = r['B'];
       break;
     }
   }
@@ -95,7 +110,7 @@ function parseMetadata(reportName) {
   if (!entries.length || !reportInfo) return null;
 
   return {
-    csvFile: reportInfo['CSV File'],
+    csvFile: csvFile || reportInfo['CSV File'],
     title: reportInfo['Title'],
     titleFontSize: parseFloat(reportInfo['Font Size']),
     titleBold: (reportInfo['Font Bold'] || '').toUpperCase() === 'Y',
