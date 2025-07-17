@@ -186,6 +186,38 @@ async function parseSource(file) {
   return parseCSV(file);
 }
 
+function formatValue(val, fmt) {
+  if (!fmt) return val;
+  let num = parseFloat(String(val).replace(/[^0-9.-]/g, ''));
+  if (isNaN(num)) return val;
+  if (fmt === '0%') {
+    return num * 100;
+  }
+  if (fmt === '$#,###') {
+    return Math.round(num);
+  }
+  return num;
+}
+
+function displayValue(val, fmt) {
+  if (!fmt) return val == null ? '' : String(val);
+  let num = parseFloat(String(val).replace(/[^0-9.-]/g, ''));
+  if (isNaN(num)) return val == null ? '' : String(val);
+  if (fmt === '0%') {
+    return Math.round(num * 100) + '%';
+  }
+  if (fmt === '$#,###') {
+    const rounded = Math.round(num);
+    const absVal  = Math.abs(rounded).toLocaleString('en-US');
+    return (rounded < 0 ? '-$' : '$') + absVal;
+  }
+  const dec = fmt.includes('.') ? fmt.split('.')[1].length : 0;
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: dec,
+    maximumFractionDigits: dec
+  }).format(num);
+}
+
 async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
   const workbook = new Excel.Workbook();
   const sheet = workbook.addWorksheet(meta.title || reportName || 'Report');
@@ -267,17 +299,9 @@ async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
     });
     groupEntries = Object.entries(groups)
       .map(([_, list]) => {
-        const caption = headerFields.map(h => {
-          const raw = list[0][h], fmt = numberFormats[h];
-          if (fmt) {
-            const dec = fmt.includes('.') ? fmt.split('.')[1].length : 0;
-            return new Intl.NumberFormat('en-US', {
-              minimumFractionDigits: dec,
-              maximumFractionDigits: dec
-            }).format(isNaN(+raw) ? raw : +raw);
-          }
-          return sanitize(raw);
-        }).join(' - ');
+        const caption = headerFields
+          .map(h => displayValue(list[0][h], numberFormats[h]))
+          .join(' - ');
         return { list, caption };
       })
       .sort((a, b) => a.caption.localeCompare(b.caption, 'en', { sensitivity: 'base' }));
@@ -288,7 +312,7 @@ async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
   // render each group
   groupEntries.forEach(({ list, caption }, gIdx) => {
     // only emit a caption row if it’s non-empty
-    if (caption && meta.headingType === 'GROUP') {
+    if (caption && (meta.headingType === 'GROUP' || meta.headingType === 'PAGE')) {
       const gr = sheet.addRow([caption]);
       sheet.mergeCells(gr.number, 1, gr.number, dataFields.length);
       const gf = {
@@ -313,10 +337,8 @@ async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
     let lastRowObj = null;
     list.forEach(r => {
       const vals = dataFields.map(fld => {
-        const raw = numberFormats[fld]
-          ? (parseFloat(r[fld]) || r[fld])
-          : r[fld];
-        return typeof raw === 'string' ? sanitize(raw) : raw;
+        const formatted = formatValue(r[fld], numberFormats[fld]);
+        return typeof formatted === 'string' ? sanitize(formatted) : formatted;
       });
       const dr = sheet.addRow(vals);
       lastRowObj = dr;
@@ -354,11 +376,13 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
   const outFile = `${(reportName || 'report').replace(/\s+/g, '_')}.pdf`;
   doc.pipe(fs.createWriteStream(outFile));
 
+  const sanitize = val => (val == null ? '' : String(val));
+
   // Title
   if (meta.titleColor) doc.fillColor(meta.titleColor);
   doc.font(meta.titleBold ? 'Helvetica-Bold' : 'Helvetica');
   doc.fontSize(meta.titleFontSize || 12).text(meta.title || reportName, {
-    align: 'center',
+    align: 'center'
   });
   doc.moveDown();
 
@@ -369,11 +393,108 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
     .filter(e => (e['Is Header'] || '').toUpperCase() !== 'Y')
     .map(e => e['Field Name']);
 
-  doc.fontSize(meta.headerFontSize || 12).font(meta.headerFontBold ? 'Helvetica-Bold' : 'Helvetica');
-  doc.text(dataFields.join(' | '));
-  doc.moveDown(0.5);
+  // maps for formatting
+  const numberFormats = {}, bgColors = {}, textAligns = {}, fontSizes = {},
+        fontNames = {}, fontBolds = {}, wrapTexts = {};
+  meta.entries.forEach(e => {
+    const n = e['Field Name'];
+    if (e['Number Format'])    numberFormats[n] = e['Number Format'];
+    if (e['Background Color']) bgColors[n]     = e['Background Color'];
+    if (e['Text Align'])       textAligns[n]   = e['Text Align'].toLowerCase();
+    if (e['Font Size'])        fontSizes[n]    = parseFloat(e['Font Size']);
+    if (e['Font Name'])        fontNames[n]    = e['Font Name'];
+    if ((e['Font Bold']||'').toUpperCase()==='Y') fontBolds[n] = true;
+    if ((e['Wrap Text']||'').toUpperCase()==='Y') wrapTexts[n] = true;
+  });
 
-  // group rows
+  // column widths (approximate character width -> points)
+  let colPts = dataFields.map(f => {
+    const entry = meta.entries.find(e => e['Field Name'] === f) || {};
+    const w = parseFloat(entry['Column Width']);
+    return (isNaN(w) ? 10 : w) * 7; // roughly 7pt per char
+  });
+  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const totalW = colPts.reduce((a,b) => a+b,0);
+  if (totalW > pageWidth) {
+    const scale = pageWidth / totalW;
+    colPts = colPts.map(w => w * scale);
+  }
+
+  const borderColor = meta.borderColor || '#000000';
+  const headerFill = meta.headerBackgroundColor;
+  const headerColor = meta.headerFontColor || '#000000';
+  const headerFont = meta.headerFontBold ? 'Helvetica-Bold' : 'Helvetica';
+  const headerSize = meta.headerFontSize || 12;
+
+  let y = doc.y;
+
+  function ensureSpace(h) {
+    if (y + h > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage();
+      y = doc.page.margins.top;
+    }
+  }
+
+  function drawRow(values, opts = {}) {
+    const heights = values.map((v, i) => {
+      return doc.heightOfString(v, { width: colPts[i] - 4 });
+    });
+    const rowH = Math.max(...heights) + 4;
+    ensureSpace(rowH);
+    let x = doc.page.margins.left;
+    values.forEach((v, i) => {
+      const w = colPts[i];
+      const cellOpt = (opts.cells && opts.cells[i]) || {};
+      if (cellOpt.fill) {
+        doc.save();
+        doc.fillColor(cellOpt.fill).rect(x, y, w, rowH).fill();
+        doc.restore();
+      }
+      doc.save();
+      doc.lineWidth(1).strokeColor(borderColor);
+      doc.rect(x, y, w, rowH).stroke();
+      doc.fillColor(cellOpt.color || 'black');
+      doc.font(cellOpt.bold ? 'Helvetica-Bold' : 'Helvetica');
+      doc.fontSize(cellOpt.size || 12);
+      doc.text(v, x + 2, y + 2, { width: w - 4, align: cellOpt.align || 'left' });
+      doc.restore();
+      x += w;
+    });
+    y += rowH;
+  }
+
+  function drawCaption(text) {
+    const w = colPts.reduce((a,b)=>a+b,0);
+    const h = doc.heightOfString(text, { width: w - 4 }) + 4;
+    ensureSpace(h);
+    const x = doc.page.margins.left;
+    if (headerFill) {
+      doc.save();
+      doc.fillColor(headerFill).rect(x, y, w, h).fill();
+      doc.restore();
+    }
+    doc.save();
+    doc.lineWidth(1).strokeColor(borderColor).rect(x, y, w, h).stroke();
+    doc.fillColor(headerColor).font(headerFont).fontSize(headerSize);
+    doc.text(text, x + 2, y + 2, { width: w - 4, align: 'left' });
+    doc.restore();
+    y += h;
+  }
+
+  // header row (only once unless page-level heading)
+  if (meta.headingType !== 'PAGE') {
+    drawRow(dataFields, {
+      cells: dataFields.map(() => ({
+        fill: headerFill,
+        color: headerColor,
+        bold: meta.headerFontBold,
+        size: headerSize,
+        align: 'center'
+      }))
+    });
+  }
+
+  // group rows similar to xlsx output
   let groupEntries = [];
   if (headerFields.length > 0) {
     const groups = {};
@@ -381,25 +502,48 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
       const key = headerFields.map(h => r[h]).join('||');
       (groups[key] = groups[key] || []).push(r);
     });
-    groupEntries = Object.entries(groups)
-      .map(([_, list]) => ({ list, caption: headerFields.map(h => rFormat(list[0][h])).join(' - ') }));
+    groupEntries = Object.entries(groups).map(([_, list]) => {
+      const caption = headerFields
+        .map(h => displayValue(list[0][h], numberFormats[h]))
+        .join(' - ');
+      return { list, caption };
+    }).sort((a,b) => a.caption.localeCompare(b.caption, 'en', {sensitivity:'base'}));
   } else {
     groupEntries = [{ list: rows, caption: null }];
   }
 
-  function rFormat(val) {
-    return typeof val === 'string' ? val : String(val);
-  }
-
-  groupEntries.forEach(({ list, caption }, idx) => {
-    if (idx && meta.headingType === 'PAGE') doc.addPage();
-    if (caption && meta.headingType === 'GROUP') {
-      doc.font(meta.headerFontBold ? 'Helvetica-Bold' : 'Helvetica');
-      doc.text(caption);
+  groupEntries.forEach(({ list, caption }, gIdx) => {
+    if (meta.headingType === 'PAGE') {
+      if (gIdx > 0) {
+        doc.addPage();
+        y = doc.page.margins.top;
+      }
+      if (caption) {
+        drawCaption(caption);
+      }
+      drawRow(dataFields, {
+        cells: dataFields.map(() => ({
+          fill: headerFill,
+          color: headerColor,
+          bold: meta.headerFontBold,
+          size: headerSize,
+          align: 'center'
+        }))
+      });
+    } else if (caption && meta.headingType === 'GROUP') {
+      drawCaption(caption);
     }
+
     list.forEach(r => {
-      const line = dataFields.map(f => r[f]).join(' | ');
-      doc.font('Helvetica').text(line);
+      const values = dataFields.map(f => displayValue(r[f], numberFormats[f]));
+      const cells = dataFields.map(f => ({
+        fill: bgColors[f],
+        align: textAligns[f] || 'left',
+        bold: fontBolds[f],
+        size: fontSizes[f] || 12,
+        color: fontBolds[f] ? headerColor : 'black'
+      }));
+      drawRow(values, { cells });
     });
   });
 
@@ -426,4 +570,4 @@ if (require.main === module) {
   })();
 }
 
-module.exports = { parseMetadata, parseCSV, parseSource, buildWorkbook };
+module.exports = { parseMetadata, parseCSV, parseSource, buildWorkbook, displayValue };
