@@ -207,7 +207,9 @@ function displayValue(val, fmt) {
     return Math.round(num * 100) + '%';
   }
   if (fmt === '$#,###') {
-    return '$' + Math.round(num).toLocaleString('en-US');
+    const rounded = Math.round(num);
+    const absVal  = Math.abs(rounded).toLocaleString('en-US');
+    return (rounded < 0 ? '-$' : '$') + absVal;
   }
   const dec = fmt.includes('.') ? fmt.split('.')[1].length : 0;
   return new Intl.NumberFormat('en-US', {
@@ -568,4 +570,4 @@ if (require.main === module) {
   })();
 }
 
-module.exports = { parseMetadata, parseCSV, parseSource, buildWorkbook };
+module.exports = { parseMetadata, parseCSV, parseSource, buildWorkbook, displayValue };
