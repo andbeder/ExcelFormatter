@@ -479,16 +479,18 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
     y += h;
   }
 
-  // header row
-  drawRow(dataFields, {
-    cells: dataFields.map(() => ({
-      fill: headerFill,
-      color: headerColor,
-      bold: meta.headerFontBold,
-      size: headerSize,
-      align: 'center'
-    }))
-  });
+  // header row (only once unless page-level heading)
+  if (meta.headingType !== 'PAGE') {
+    drawRow(dataFields, {
+      cells: dataFields.map(() => ({
+        fill: headerFill,
+        color: headerColor,
+        bold: meta.headerFontBold,
+        size: headerSize,
+        align: 'center'
+      }))
+    });
+  }
 
   // group rows similar to xlsx output
   let groupEntries = [];
@@ -509,9 +511,27 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
   }
 
   groupEntries.forEach(({ list, caption }, gIdx) => {
-    if (caption && (meta.headingType === 'GROUP' || meta.headingType === 'PAGE')) {
+    if (meta.headingType === 'PAGE') {
+      if (gIdx > 0) {
+        doc.addPage();
+        y = doc.page.margins.top;
+      }
+      if (caption) {
+        drawCaption(caption);
+      }
+      drawRow(dataFields, {
+        cells: dataFields.map(() => ({
+          fill: headerFill,
+          color: headerColor,
+          bold: meta.headerFontBold,
+          size: headerSize,
+          align: 'center'
+        }))
+      });
+    } else if (caption && meta.headingType === 'GROUP') {
       drawCaption(caption);
     }
+
     list.forEach(r => {
       const values = dataFields.map(f => displayValue(r[f], numberFormats[f]));
       const cells = dataFields.map(f => ({
@@ -523,19 +543,6 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
       }));
       drawRow(values, { cells });
     });
-    if (meta.headingType === 'PAGE' && gIdx < groupEntries.length - 1) {
-      doc.addPage();
-      y = doc.page.margins.top;
-      drawRow(dataFields, {
-        cells: dataFields.map(() => ({
-          fill: headerFill,
-          color: headerColor,
-          bold: meta.headerFontBold,
-          size: headerSize,
-          align: 'center'
-        }))
-      });
-    }
   });
 
   doc.end();
