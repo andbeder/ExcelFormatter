@@ -472,18 +472,19 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
     values.forEach((v, i) => {
       const w = colPts[i];
       const cellOpt = (opts.cells && opts.cells[i]) || {};
+      const textH = heights[i];
       if (cellOpt.fill) {
         doc.save();
         doc.fillColor(cellOpt.fill).rect(x, y, w, rowH).fill();
         doc.restore();
       }
       doc.save();
-      doc.lineWidth(1).strokeColor(borderColor);
+      doc.lineWidth(0.5).strokeColor(borderColor);
       doc.rect(x, y, w, rowH).stroke();
       doc.fillColor(cellOpt.color || 'black');
       doc.font(cellOpt.bold ? 'Helvetica-Bold' : 'Helvetica');
       doc.fontSize(cellOpt.size || 12);
-      doc.text(v, x + 2, y + 2, { width: w - 4, align: cellOpt.align || 'left' });
+      doc.text(v, x + 2, y + (rowH - textH) / 2, { width: w - 4, align: cellOpt.align || 'left' });
       doc.restore();
       x += w;
     });
@@ -501,7 +502,7 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
       doc.restore();
     }
     doc.save();
-    doc.lineWidth(1).strokeColor(borderColor).rect(x, y, w, h).stroke();
+    doc.lineWidth(0.5).strokeColor(borderColor).rect(x, y, w, h).stroke();
     doc.fillColor(headerColor).font(headerFont).fontSize(headerSize);
     doc.text(text, x + 2, y + 2, { width: w - 4, align: 'left' });
     doc.restore();
@@ -593,7 +594,7 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
       // draw merged label cell
       if (firstIdx > 0) {
         doc.save();
-        doc.lineWidth(1).strokeColor(borderColor);
+        doc.lineWidth(0.5).strokeColor(borderColor);
         doc.rect(x, y, labelWidth, rowH).stroke();
         doc.fillColor(headerColor).font('Helvetica-Bold').fontSize(headerSize);
         doc.text('Totals', x + 2, y + 2, {width: labelWidth - 4, align: 'left'});
@@ -602,7 +603,7 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
       } else {
         // no non-total columns
         doc.save();
-        doc.lineWidth(1).strokeColor(borderColor);
+        doc.lineWidth(0.5).strokeColor(borderColor);
         doc.rect(x, y, colPts[0], rowH).stroke();
         doc.fillColor(headerColor).font('Helvetica-Bold').fontSize(headerSize);
         doc.text('Totals', x + 2, y + 2, {width: colPts[0] - 4, align: 'left'});
@@ -614,7 +615,7 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
         const w = colPts[i];
         const v = values[i];
         doc.save();
-        doc.lineWidth(1).strokeColor(borderColor);
+        doc.lineWidth(0.5).strokeColor(borderColor);
         doc.rect(x, y, w, rowH).stroke();
         doc.fillColor(headerColor).font('Helvetica-Bold').fontSize(headerSize);
         doc.text(v, x + 2, y + 2, {width: w - 4, align: textAligns[dataFields[i]] || 'left'});
