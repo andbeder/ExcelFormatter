@@ -128,6 +128,7 @@ function parseMetadata(reportName) {
     printPagesWidth: parseInt(reportInfo['Print Pages Width'], 10) || 1,
     outputTarget: (reportInfo['Output Target'] || 'XLSX').toUpperCase(),
     headingType: (reportInfo['Heading Type'] || 'Group').toUpperCase(),
+    headingTotals: (reportInfo['Heading Totals'] || '').toUpperCase() === 'Y',
     entries
   };
 }
@@ -335,6 +336,11 @@ async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
 
     // then data rows
     let lastRowObj = null;
+    const totalsFields = meta.entries
+      .filter(e => (e['Totals'] || '').toUpperCase() === 'Y')
+      .map(e => e['Field Name']);
+    const sums = {};
+    totalsFields.forEach(f => sums[f] = 0);
     list.forEach(r => {
       const vals = dataFields.map(fld => {
         const formatted = formatValue(r[fld], numberFormats[fld]);
@@ -359,7 +365,28 @@ async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
         if (tableBorder) cell.border = tableBorder;
         if (numberFormats[fld]) cell.numFmt = numberFormats[fld];
       });
+      totalsFields.forEach(f => {
+        const val = parseFloat(formatValue(r[f], numberFormats[f]));
+        if (!isNaN(val)) sums[f] += val;
+      });
     });
+    if (meta.headingTotals && totalsFields.length) {
+      const vals = dataFields.map(f =>
+        totalsFields.includes(f) ? displayValue(sums[f], numberFormats[f]) : ''
+      );
+      const tr = sheet.addRow(vals.map(sanitize));
+      lastRowObj = tr;
+      tr.font = { bold: true };
+      const firstIdx = dataFields.findIndex(f => totalsFields.includes(f));
+      if (firstIdx > 0) {
+        sheet.mergeCells(tr.number, 1, tr.number, firstIdx);
+      }
+      tr.getCell(1).value = 'Totals';
+      tr.eachCell((cell, i) => {
+        cell.alignment = { horizontal: textAligns[dataFields[i-1]] || 'left' };
+        if (tableBorder) cell.border = tableBorder;
+      });
+    }
     if (meta.headingType === 'PAGE' && gIdx < groupEntries.length - 1 && lastRowObj) {
       lastRowObj.addPageBreak();
     }
@@ -534,6 +561,11 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
       drawCaption(caption);
     }
 
+    const totalsFields = meta.entries
+      .filter(e => (e['Totals'] || '').toUpperCase() === 'Y')
+      .map(e => e['Field Name']);
+    const sums = {};
+    totalsFields.forEach(f => sums[f] = 0);
     list.forEach(r => {
       const values = dataFields.map(f => displayValue(r[f], numberFormats[f]));
       const cells = dataFields.map(f => ({
@@ -544,7 +576,53 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
         color: fontBolds[f] ? headerColor : 'black'
       }));
       drawRow(values, { cells });
+      totalsFields.forEach(f => {
+        const val = parseFloat(formatValue(r[f], numberFormats[f]));
+        if (!isNaN(val)) sums[f] += val;
+      });
     });
+    if (meta.headingTotals && totalsFields.length) {
+      const firstIdx = dataFields.findIndex(f => totalsFields.includes(f));
+      const labelWidth = colPts.slice(0, Math.max(firstIdx, 1)).reduce((a,b)=>a+b,0);
+      const values = dataFields.map(f => totalsFields.includes(f) ? displayValue(sums[f], numberFormats[f]) : '');
+      const heights = [doc.heightOfString('Totals', {width: labelWidth - 4})]
+        .concat(values.slice(firstIdx).map((v,i)=>doc.heightOfString(v,{width: colPts[firstIdx+i]-4})));
+      const rowH = Math.max(...heights) + 4;
+      ensureSpace(rowH);
+      let x = doc.page.margins.left;
+      // draw merged label cell
+      if (firstIdx > 0) {
+        doc.save();
+        doc.lineWidth(1).strokeColor(borderColor);
+        doc.rect(x, y, labelWidth, rowH).stroke();
+        doc.fillColor(headerColor).font('Helvetica-Bold').fontSize(headerSize);
+        doc.text('Totals', x + 2, y + 2, {width: labelWidth - 4, align: 'left'});
+        doc.restore();
+        x += labelWidth;
+      } else {
+        // no non-total columns
+        doc.save();
+        doc.lineWidth(1).strokeColor(borderColor);
+        doc.rect(x, y, colPts[0], rowH).stroke();
+        doc.fillColor(headerColor).font('Helvetica-Bold').fontSize(headerSize);
+        doc.text('Totals', x + 2, y + 2, {width: colPts[0] - 4, align: 'left'});
+        doc.restore();
+        x += colPts[0];
+      }
+      // draw totals cells
+      for (let i = Math.max(firstIdx,1); i < dataFields.length; i++) {
+        const w = colPts[i];
+        const v = values[i];
+        doc.save();
+        doc.lineWidth(1).strokeColor(borderColor);
+        doc.rect(x, y, w, rowH).stroke();
+        doc.fillColor(headerColor).font('Helvetica-Bold').fontSize(headerSize);
+        doc.text(v, x + 2, y + 2, {width: w - 4, align: textAligns[dataFields[i]] || 'left'});
+        doc.restore();
+        x += w;
+      }
+      y += rowH;
+    }
   });
 
   doc.end();
