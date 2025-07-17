@@ -186,6 +186,36 @@ async function parseSource(file) {
   return parseCSV(file);
 }
 
+function formatValue(val, fmt) {
+  if (!fmt) return val;
+  let num = parseFloat(String(val).replace(/[^0-9.-]/g, ''));
+  if (isNaN(num)) return val;
+  if (fmt === '0%') {
+    return num * 100;
+  }
+  if (fmt === '$#,###') {
+    return Math.round(num);
+  }
+  return num;
+}
+
+function displayValue(val, fmt) {
+  if (!fmt) return val == null ? '' : String(val);
+  let num = parseFloat(String(val).replace(/[^0-9.-]/g, ''));
+  if (isNaN(num)) return val == null ? '' : String(val);
+  if (fmt === '0%') {
+    return Math.round(num * 100) + '%';
+  }
+  if (fmt === '$#,###') {
+    return '$' + Math.round(num).toLocaleString('en-US');
+  }
+  const dec = fmt.includes('.') ? fmt.split('.')[1].length : 0;
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: dec,
+    maximumFractionDigits: dec
+  }).format(num);
+}
+
 async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
   const workbook = new Excel.Workbook();
   const sheet = workbook.addWorksheet(meta.title || reportName || 'Report');
@@ -267,17 +297,9 @@ async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
     });
     groupEntries = Object.entries(groups)
       .map(([_, list]) => {
-        const caption = headerFields.map(h => {
-          const raw = list[0][h], fmt = numberFormats[h];
-          if (fmt) {
-            const dec = fmt.includes('.') ? fmt.split('.')[1].length : 0;
-            return new Intl.NumberFormat('en-US', {
-              minimumFractionDigits: dec,
-              maximumFractionDigits: dec
-            }).format(isNaN(+raw) ? raw : +raw);
-          }
-          return sanitize(raw);
-        }).join(' - ');
+        const caption = headerFields
+          .map(h => displayValue(list[0][h], numberFormats[h]))
+          .join(' - ');
         return { list, caption };
       })
       .sort((a, b) => a.caption.localeCompare(b.caption, 'en', { sensitivity: 'base' }));
@@ -288,7 +310,7 @@ async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
   // render each group
   groupEntries.forEach(({ list, caption }, gIdx) => {
     // only emit a caption row if it’s non-empty
-    if (caption && meta.headingType === 'GROUP') {
+    if (caption && (meta.headingType === 'GROUP' || meta.headingType === 'PAGE')) {
       const gr = sheet.addRow([caption]);
       sheet.mergeCells(gr.number, 1, gr.number, dataFields.length);
       const gf = {
@@ -313,10 +335,8 @@ async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
     let lastRowObj = null;
     list.forEach(r => {
       const vals = dataFields.map(fld => {
-        const raw = numberFormats[fld]
-          ? (parseFloat(r[fld]) || r[fld])
-          : r[fld];
-        return typeof raw === 'string' ? sanitize(raw) : raw;
+        const formatted = formatValue(r[fld], numberFormats[fld]);
+        return typeof formatted === 'string' ? sanitize(formatted) : formatted;
       });
       const dr = sheet.addRow(vals);
       lastRowObj = dr;
@@ -479,7 +499,9 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
       (groups[key] = groups[key] || []).push(r);
     });
     groupEntries = Object.entries(groups).map(([_, list]) => {
-      const caption = headerFields.map(h => sanitize(list[0][h])).join(' - ');
+      const caption = headerFields
+        .map(h => displayValue(list[0][h], numberFormats[h]))
+        .join(' - ');
       return { list, caption };
     }).sort((a,b) => a.caption.localeCompare(b.caption, 'en', {sensitivity:'base'}));
   } else {
@@ -487,11 +509,11 @@ async function buildPdf(meta, rows, reportName = REPORT_NAME) {
   }
 
   groupEntries.forEach(({ list, caption }, gIdx) => {
-    if (caption && meta.headingType === 'GROUP') {
+    if (caption && (meta.headingType === 'GROUP' || meta.headingType === 'PAGE')) {
       drawCaption(caption);
     }
     list.forEach(r => {
-      const values = dataFields.map(f => sanitize(r[f]));
+      const values = dataFields.map(f => displayValue(r[f], numberFormats[f]));
       const cells = dataFields.map(f => ({
         fill: bgColors[f],
         align: textAligns[f] || 'left',
