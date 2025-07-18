@@ -650,7 +650,22 @@ if (require.main === module) {
       console.error('Report not found in metadata');
       process.exit(1);
     }
-    const rows = await parseSource(meta.csvFile);
+
+    let sourceFile = meta.csvFile;
+
+    // If the CSV file looks like a Salesforce report Id, export it first
+    if (/^[a-zA-Z0-9]{18}$/.test(sourceFile) && !fs.existsSync(sourceFile)) {
+      try {
+        const auth = await require('./sfdcAuth')();
+        sourceFile = await require('./reportExport')(auth, sourceFile);
+      } catch (err) {
+        console.error('Failed to export Salesforce report');
+        console.error(err.message);
+        process.exit(1);
+      }
+    }
+
+    const rows = await parseSource(sourceFile);
     await buildWorkbook(meta, rows, REPORT_NAME);
   })();
 }
