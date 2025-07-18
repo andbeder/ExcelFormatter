@@ -268,13 +268,19 @@ async function buildXlsx(meta, rows, reportName = REPORT_NAME) {
     return { key: f, width: isNaN(w) ? undefined : w };
   });
 
-  // Title
-  const titleRow = sheet.addRow([sanitize(meta.title || '')]);
-  sheet.mergeCells(titleRow.number, 1, titleRow.number, dataFields.length);
-  const tf = { name: meta.titleFontName, size: meta.titleFontSize, bold: meta.titleBold };
-  const tc = hexToARGB(meta.titleColor);
-  if (tc) tf.color = { argb: tc };
-  titleRow.font = tf;
+  // Title - only add a row if a title is provided
+  if (meta.title && String(meta.title).trim() !== '') {
+    const titleRow = sheet.addRow([sanitize(meta.title)]);
+    sheet.mergeCells(titleRow.number, 1, titleRow.number, dataFields.length);
+    const tf = {
+      name: meta.titleFontName,
+      size: meta.titleFontSize,
+      bold: meta.titleBold
+    };
+    const tc = hexToARGB(meta.titleColor);
+    if (tc) tf.color = { argb: tc };
+    titleRow.font = tf;
+  }
 
   // Column headers
   const headerRow = sheet.addRow(dataFields.map(sanitize));
