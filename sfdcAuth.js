@@ -15,6 +15,8 @@ const axios = require('axios');
  *                      https://login.salesforce.com/services/oauth2/token
  *   OKTA_DOMAIN      - Okta domain used as the audience (default beder.okta.com)
  *   KEY_PASS         - Passphrase to decrypt the private key
+ *   KEY_PBKDF2       - Set to "1" if the key was encrypted with openssl using
+ *                      the -pbkdf2 option
  */
 async function authenticate() {
   const clientId = process.env.SFDC_CLIENT_ID;
@@ -33,7 +35,12 @@ async function authenticate() {
     throw new Error('KEY_PASS must be set');
   }
 
-  const privateKey = decryptKey(fs.readFileSync(path.resolve(keyPath)), keyPass).toString('utf8');
+  const usePbkdf2 = process.env.KEY_PBKDF2 === '1';
+  const privateKey = decryptKey(
+    fs.readFileSync(path.resolve(keyPath)),
+    keyPass,
+    usePbkdf2
+  ).toString('utf8');
 
   const jwtToken = jwt.sign(
     {
@@ -74,7 +81,7 @@ if (require.main === module) {
 
 module.exports = authenticate;
 
-function decryptKey(buf, pass) {
+function decryptKey(buf, pass, usePbkdf2) {
   const magic = Buffer.from('Salted__');
   if (buf.slice(0, magic.length).compare(magic) !== 0) {
     throw new Error('Invalid encrypted key file');
@@ -82,7 +89,20 @@ function decryptKey(buf, pass) {
   const salt = buf.slice(magic.length, magic.length + 8);
   const enc = buf.slice(magic.length + 8);
 
-  const { key, iv } = evpKdf(Buffer.from(pass, 'utf8'), salt, 32, 16);
+  let key, iv;
+  if (usePbkdf2) {
+    const derived = crypto.pbkdf2Sync(
+      Buffer.from(pass, 'utf8'),
+      salt,
+      10000,
+      48,
+      'sha256'
+    );
+    key = derived.slice(0, 32);
+    iv = derived.slice(32, 48);
+  } else {
+    ({ key, iv } = evpKdf(Buffer.from(pass, 'utf8'), salt, 32, 16));
+  }
   const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
   return Buffer.concat([decipher.update(enc), decipher.final()]);
 }
