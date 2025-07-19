@@ -19,6 +19,7 @@ const axios = require('axios');
  *                      the -pbkdf2 option
  */
 async function authenticate() {
+  const debug = process.env.SFDC_AUTH_DEBUG === '1';
   const clientId = process.env.SFDC_CLIENT_ID;
   const username = process.env.SFDC_USERNAME || 'andbeder@salesforce.com';
   const keyPath = process.env.SFDC_PRIVATE_KEY;
@@ -26,6 +27,14 @@ async function authenticate() {
   const tokenUrl = process.env.SFDC_TOKEN_URL ||
     'https://login.salesforce.com/services/oauth2/token';
   const oktaDomain = process.env.OKTA_DOMAIN || 'beder.okta.com';
+
+  if (debug) {
+    console.log('SFDC auth debug info:');
+    console.log('  tokenUrl:', tokenUrl);
+    console.log('  username:', username);
+    console.log('  clientId:', clientId);
+    console.log('  using PBKDF2:', process.env.KEY_PBKDF2 === '1');
+  }
 
   if (!clientId || !keyPath) {
     throw new Error('SFDC_CLIENT_ID and SFDC_PRIVATE_KEY must be set');
@@ -52,13 +61,39 @@ async function authenticate() {
     { algorithm: 'RS256', expiresIn: 3 * 60 }
   );
 
+  if (debug) {
+    const parts = jwtToken.split('.');
+    const decode = str => JSON.parse(Buffer.from(str, 'base64').toString('utf8'));
+    console.log('  jwt header:', decode(parts[0]));
+    console.log('  jwt payload:', decode(parts[1]));
+  }
+
   const params = new URLSearchParams();
   params.append('grant_type', 'urn:ietf:params:oauth:grant-type:jwt-bearer');
   params.append('assertion', jwtToken);
 
-  const { data } = await axios.post(tokenUrl, params.toString(), {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
+  if (debug) {
+    console.log('  request body:', params.toString());
+  }
+
+  let data;
+  try {
+    const resp = await axios.post(tokenUrl, params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    data = resp.data;
+  } catch (err) {
+    if (debug && err.response) {
+      console.error('  status:', err.response.status);
+      console.error('  response:', err.response.data);
+    }
+    throw err;
+  }
+
+  if (debug) {
+    console.log('  accessToken:', data.access_token);
+    console.log('  instanceUrl:', data.instance_url);
+  }
 
   return {
     accessToken: data.access_token,
